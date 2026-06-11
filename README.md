@@ -20,7 +20,7 @@ replication to move databases between sites quickly — independent of database 
 | Azure secondary   | `aen-sql-25-e` | `gso-cbs-azure.fsa.lab` (EverPure Cloud, iSCSI/EPC) | |
 | Object storage    | — | `s200.fsa.lab` (FlashBlade S3) | metadata + log backups |
 
-## The three demos (repo root)
+## The three demos (`Maximizing-Hybrid-SQL-Server-2025-on-Azure-with-EverPure-Cloud/`)
 
 ### 1. `Invoke-AGSeedFromSnapshot-sql25.ps1`
 Seeds an Availability Group database from the on‑prem primary to **both** an on‑prem secondary
