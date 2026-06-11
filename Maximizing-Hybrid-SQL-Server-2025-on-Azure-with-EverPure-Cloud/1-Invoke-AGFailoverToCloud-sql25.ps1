@@ -56,6 +56,20 @@ Import-Module PureStoragePowerShellSDK2
 # failed step (e.g. a failed snapshot while the database is still frozen).
 $ErrorActionPreference = 'Stop'
 
+function Wait-Spacebar {
+    param([string]$Summary, [string]$Highlight)
+    Write-Host "`n$('─' * 62)" -ForegroundColor DarkCyan
+    Write-Host "  WHAT JUST HAPPENED" -ForegroundColor White
+    Write-Host "  $Summary" -ForegroundColor Cyan
+    Write-Host ""
+    Write-Host "  KEY POINT" -ForegroundColor White
+    Write-Host "  $Highlight" -ForegroundColor Yellow
+    Write-Host "$('─' * 62)" -ForegroundColor DarkCyan
+    Write-Host "`n  Press SPACEBAR to continue..." -ForegroundColor DarkGray
+    do { $key = $Host.UI.RawUI.ReadKey('NoEcho,IncludeKeyDown') } while ($key.Character -ne ' ')
+    Write-Host ""
+}
+
 
 #region --- Variables ---
 # Variables are named by machine identity so the SAME box uses the SAME name in
@@ -121,7 +135,8 @@ Write-Host   "      (Demo note: the outage is simulated — nothing on-prem is a
 
 # ── [1] Connect to the new primary (cloud) ──────────────────────────────────────
 Write-Host "`n  [1] Connecting to $CloudSqlServer (new primary)..." -ForegroundColor Yellow
-$SqlInstanceCloud = Connect-DbaInstance -SqlInstance $CloudSqlServer -TrustServerCertificate -NonPooledConnection
+$SqlCredential    = Import-Clixml -Path "$HOME\SA_Cred.xml"
+$SqlInstanceCloud = Connect-DbaInstance -SqlInstance $CloudSqlServer -SqlCredential $SqlCredential -TrustServerCertificate -NonPooledConnection
 Write-Host "      ✓ Connected to $CloudSqlServer" -ForegroundColor Green
 
 
@@ -132,6 +147,9 @@ $Query = "ALTER AVAILABILITY GROUP [$AgName] FORCE_FAILOVER_ALLOW_DATA_LOSS"
 Invoke-DbaQuery -SqlInstance $SqlInstanceCloud -Database master -Query $Query -Verbose
 Write-Host "      ✓ Failover complete — $CloudSqlServer is the new primary" -ForegroundColor Green
 
+Wait-Spacebar `
+    -Summary  "Issued FORCE_FAILOVER_ALLOW_DATA_LOSS on $CloudSqlServer. The Azure EverPure replica is now the AG primary. Transactions not yet replicated from the failed on-prem site are permanently lost — this is the accepted cost of an unplanned failover." `
+    -Highlight "SQL Server requires you to name the risk explicitly in T-SQL: FORCE_FAILOVER_ALLOW_DATA_LOSS. Without Pure Storage snapshot-based reseed, recovering the on-prem secondaries would require a full database backup stream. We are about to show a better way."
 
 
 ##############################################################################################################################
@@ -149,14 +167,17 @@ Write-Host   "  DISCONNECTED / NOT SYNCHRONIZING and must be reseeded before the
 
 # ── [1] Show replica status ─────────────────────────────────────────────────────
 Write-Host "`n  [1] AG replica status..." -ForegroundColor Yellow
-Get-DbaAgReplica  -SqlInstance $CloudSqlServer -AvailabilityGroup $AgName |
+Get-DbaAgReplica  -SqlInstance $SqlInstanceCloud -AvailabilityGroup $AgName |
     Format-Table AvailabilityGroup, Name, Role, ConnectionState, SynchronizationHealth
 
 # ── [2] Show database sync status ───────────────────────────────────────────────
 Write-Host "  [2] AG database sync status..." -ForegroundColor Yellow
-Get-DbaAgDatabase -SqlInstance $CloudSqlServer -AvailabilityGroup $AgName |
+Get-DbaAgDatabase -SqlInstance $SqlInstanceCloud -AvailabilityGroup $AgName |
     Format-Table AvailabilityGroup, Replica, Name, SynchronizationState, SynchronizationHealth
 
+Wait-Spacebar `
+    -Summary  "Queried replica and database sync states from the new primary $CloudSqlServer. Both on-prem replicas ($OnPremSqlServer1 and $OnPremSqlServer2) are DISCONNECTED / NOT SYNCHRONIZING — they fell behind the forced failover point and cannot self-heal." `
+    -Highlight "After a forced failover, secondaries not at the same LSN as the new primary are permanently out of sync. The only path back is a reseed. Pure Storage makes that a storage-speed operation regardless of database size — we are about to prove it."
 
 
 ##############################################################################################################################
@@ -195,8 +216,8 @@ Write-Host "        Target PGroup (-d)  : $OnPremTargetPGroup2" -ForegroundColor
 
 # ── [3] Persistent connections to on-prem instances ─────────────────────────────
 Write-Host "`n  [3] Connecting to on-prem SQL instances ($OnPremSqlServer1, $OnPremSqlServer2)..." -ForegroundColor Yellow
-$SqlInstanceOnPrem1 = Connect-DbaInstance -SqlInstance $OnPremSqlServer1 -TrustServerCertificate -NonPooledConnection
-$SqlInstanceOnPrem2 = Connect-DbaInstance -SqlInstance $OnPremSqlServer2 -TrustServerCertificate -NonPooledConnection
+$SqlInstanceOnPrem1 = Connect-DbaInstance -SqlInstance $OnPremSqlServer1 -SqlCredential $SqlCredential -TrustServerCertificate -NonPooledConnection
+$SqlInstanceOnPrem2 = Connect-DbaInstance -SqlInstance $OnPremSqlServer2 -SqlCredential $SqlCredential -TrustServerCertificate -NonPooledConnection
 $OnPremSession1 = New-PSSession -ComputerName $OnPremSqlServer1
 $OnPremSession2 = New-PSSession -ComputerName $OnPremSqlServer2
 Write-Host "      ✓ Connected" -ForegroundColor Green
@@ -250,6 +271,9 @@ Write-Host "     Backup   : $BackupUrl" -ForegroundColor White
 Write-Host "     Log      : $LogBackupUrl" -ForegroundColor White
 Write-Host "     Status   : Replicating asynchronously to both on-prem arrays" -ForegroundColor White
 
+Wait-Spacebar `
+    -Summary  "Reconnected to all instances. Froze $CloudSqlServer, took a PGroup snapshot on $CloudArrayName, released the freeze with a METADATA_ONLY .bkm backup, and captured a bridging log backup — all targeting both on-prem arrays simultaneously." `
+    -Highlight "Replication direction has reversed: Azure EverPure is now the snapshot SOURCE and both on-prem arrays are the targets. The same Pure Storage + T-SQL Snapshot Backup workflow operates identically cloud-to-on-prem and on-prem-to-cloud."
 
 
 ##############################################################################################################################
@@ -343,7 +367,7 @@ Write-Host "      ✓ $OnPremSqlServer1 rejoined [$AgName] as a synchronizing re
 
 # ── [H] Verify sync state on aen-sql-25-c ───────────────────────────────────────
 Write-Host "`n  [H] Verifying sync state on $OnPremSqlServer1..." -ForegroundColor Yellow
-Get-DbaAgDatabase -SqlInstance $CloudSqlServer -AvailabilityGroup $AgName |
+Get-DbaAgDatabase -SqlInstance $SqlInstanceCloud -AvailabilityGroup $AgName |
     Select-Object ComputerName, AvailabilityGroup, Name, SynchronizationState, IsJoined, IsSuspended |
     Format-Table -AutoSize
 
@@ -351,6 +375,9 @@ Write-Host "  ── Part 4 complete (aen-sql-25-c reseeded) ──────�
 Write-Host "     Snapshot : $($OnPremTargetSnapshot1.Name)" -ForegroundColor White
 Write-Host "     Log      : $LogBackupUrl" -ForegroundColor White
 
+Wait-Spacebar `
+    -Summary  "Waited for the Azure snapshot to arrive on $OnPremArrayName1. Offlined $OnPremSqlServer1 disks, overwrote the volumes from the replicated snapshot, onlined the disks, restored the .bkm metadata file and bridging log, then rejoined $OnPremSqlServer1 to $AgName as a synchronizing replica." `
+    -Highlight "A 20 TB replica reseeded from a flash copy entirely in storage — no network backup transfer, no SQL Server I/O for the data files. The METADATA_ONLY restore just registers the database headers so SQL Server can rejoin the AG."
 
 
 ##############################################################################################################################
@@ -444,10 +471,10 @@ Write-Host "      ✓ $OnPremSqlServer2 rejoined [$AgName] as a synchronizing re
 
 # ── [H] Final AG status across all three replicas ───────────────────────────────
 Write-Host "`n  [H] Final AG status across all three replicas..." -ForegroundColor Yellow
-Get-DbaAgReplica  -SqlInstance $CloudSqlServer -AvailabilityGroup $AgName |
+Get-DbaAgReplica  -SqlInstance $SqlInstanceCloud -AvailabilityGroup $AgName |
     Format-Table AvailabilityGroup, Name, Role, ConnectionState, SynchronizationHealth
 
-Get-DbaAgDatabase -SqlInstance $CloudSqlServer -AvailabilityGroup $AgName |
+Get-DbaAgDatabase -SqlInstance $SqlInstanceCloud -AvailabilityGroup $AgName |
     Select-Object ComputerName, AvailabilityGroup, Name, SynchronizationState, IsJoined, IsSuspended |
     Format-Table -AutoSize
 
@@ -462,6 +489,9 @@ Write-Host "     New primary : $CloudSqlServer  (Azure EverPure)" -ForegroundCol
 Write-Host "     Reseeded    : $OnPremSqlServer1, $OnPremSqlServer2  (on-prem)" -ForegroundColor White
 Write-Host "     Database    : [$DbName] in AG [$AgName]" -ForegroundColor White
 
+Wait-Spacebar `
+    -Summary  "Both on-prem replicas ($OnPremSqlServer1 and $OnPremSqlServer2) are now synchronizing against the Azure primary $CloudSqlServer. A single Azure PGroup snapshot was used to reseed two independent on-prem targets in parallel." `
+    -Highlight "From a total on-prem outage to a fully healthy 3-replica AG — no backup streams, no network data transfer of the database files, no dependency on the failed primary. This is EverPure Cloud Dedicated + T-SQL Snapshot Backup at any scale."
 
 
 ##############################################################################################################################
@@ -541,10 +571,10 @@ Write-Host "      ✓ $CloudSqlServer set back to asynchronous commit" -Foregrou
 
 # ── [5] Verify roles and sync state after failback ──────────────────────────────
 Write-Host "`n  [5] Verifying AG roles and sync state after failback..." -ForegroundColor Yellow
-Get-DbaAgReplica  -SqlInstance $OnPremSqlServer1 -AvailabilityGroup $AgName |
+Get-DbaAgReplica  -SqlInstance $SqlInstanceOnPrem1 -AvailabilityGroup $AgName |
     Format-Table AvailabilityGroup, Name, Role, AvailabilityMode, ConnectionState, SynchronizationHealth
 
-Get-DbaAgDatabase -SqlInstance $OnPremSqlServer1 -AvailabilityGroup $AgName |
+Get-DbaAgDatabase -SqlInstance $SqlInstanceOnPrem1 -AvailabilityGroup $AgName |
     Select-Object ComputerName, AvailabilityGroup, Name, SynchronizationState, IsJoined, IsSuspended |
     Format-Table -AutoSize
 
@@ -554,9 +584,12 @@ Write-Host   "╚═════════════════════
 Write-Host "     Primary       : $OnPremSqlServer1 (on-prem)" -ForegroundColor White
 Write-Host "     Cloud replica : $CloudSqlServer (asynchronous commit)" -ForegroundColor White
 
+Wait-Spacebar `
+    -Summary  "Switched $CloudSqlServer and $OnPremSqlServer1 to SYNCHRONOUS_COMMIT, waited for $OnPremSqlServer1 to reach SYNCHRONIZED state, issued a planned zero-data-loss FAILOVER from $OnPremSqlServer1, then returned $CloudSqlServer to ASYNCHRONOUS_COMMIT." `
+    -Highlight "Planned failback requires synchronous commit on both endpoints — SQL Server will not proceed until both are SYNCHRONIZED. The WAN link is in sync mode only for the brief failover window, then returns to async so on-prem write latency is not penalized by the round-trip to Azure."
 
 
-#region --- Reset (optional; gated by $ResetDemo flag) ---
+#region --- Reset (optional; gated by \$ResetDemo flag) ---
 $ResetDemo = $false
 
 if ($ResetDemo) {

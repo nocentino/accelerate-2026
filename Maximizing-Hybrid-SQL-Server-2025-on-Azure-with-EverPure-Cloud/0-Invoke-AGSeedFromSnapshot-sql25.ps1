@@ -49,6 +49,20 @@ Import-Module PureStoragePowerShellSDK2
 # failed step (e.g. a failed snapshot while the database is still frozen).
 $ErrorActionPreference = 'Stop'
 
+function Wait-Spacebar {
+    param([string]$Summary, [string]$Highlight)
+    Write-Host "`n$('─' * 62)" -ForegroundColor DarkCyan
+    Write-Host "  WHAT JUST HAPPENED" -ForegroundColor White
+    Write-Host "  $Summary" -ForegroundColor Cyan
+    Write-Host ""
+    Write-Host "  KEY POINT" -ForegroundColor White
+    Write-Host "  $Highlight" -ForegroundColor Yellow
+    Write-Host "$('─' * 62)" -ForegroundColor DarkCyan
+    Write-Host "`n  Press SPACEBAR to continue..." -ForegroundColor DarkGray
+    do { $key = $Host.UI.RawUI.ReadKey('NoEcho,IncludeKeyDown') } while ($key.Character -ne ' ')
+    Write-Host ""
+}
+
 
 #region --- Variables ---
 # Variables are named by machine identity so the SAME box uses the SAME name in
@@ -186,7 +200,9 @@ Write-Host "     Snapshot : $($OnPremSnapshot1.Name)" -ForegroundColor White
 Write-Host "     Backup   : $BackupUrl" -ForegroundColor White
 Write-Host "     Status   : Replicating asynchronously to both target arrays" -ForegroundColor White
 
-
+Wait-Spacebar `
+    -Summary  "Froze write I/O on $OnPremSqlServer1 with SUSPEND_FOR_SNAPSHOT_BACKUP, triggered a Pure Storage PGroup snapshot on $OnPremArrayName1, then immediately released the freeze and wrote a METADATA_ONLY .bkm file to FlashBlade S3. The snapshot is now replicating async to both $OnPremArrayName2 and $CloudArrayName." `
+    -Highlight "The production freeze lasted milliseconds. The 20 TB data volume never moved through SQL Server — it travels as an array-level block copy via PGroup replication. Seed time is bounded by storage speed, not database size."
 
 
 ##############################################################################################################################
@@ -307,6 +323,9 @@ Write-Host "     [$DbName] seeded and synchronizing on $OnPremSqlServer2" -Foreg
 Write-Host "     Snapshot   : $($OnPremTargetSnapshot2.Name)" -ForegroundColor White
 Write-Host "     Log backup : $LogBackupUrl" -ForegroundColor White
 
+Wait-Spacebar `
+    -Summary  "The snapshot landed on $OnPremArrayName2. Disks were offlined on $OnPremSqlServer2, volumes were overwritten from the replicated snapshot, disks were brought back online, and the .bkm metadata + bridging log were restored. $OnPremSqlServer2 has joined $AgName as a synchronizing replica." `
+    -Highlight "No backup stream crossed any network. A 20 TB secondary was seeded entirely by a storage-level volume overwrite from a replicated Flash snapshot — the same operation that takes seconds on any size database."
 
 
 ##############################################################################################################################

@@ -123,6 +123,20 @@ function Wait-PodState { param($Array, $Name, $State)
     } while ($p.PromotionStatus -ne $State)
     return $p
 }
+
+function Wait-Spacebar {
+    param([string]$Summary, [string]$Highlight)
+    Write-Host "`n$('─' * 62)" -ForegroundColor DarkCyan
+    Write-Host "  WHAT JUST HAPPENED" -ForegroundColor White
+    Write-Host "  $Summary" -ForegroundColor Cyan
+    Write-Host ""
+    Write-Host "  KEY POINT" -ForegroundColor White
+    Write-Host "  $Highlight" -ForegroundColor Yellow
+    Write-Host "$('─' * 62)" -ForegroundColor DarkCyan
+    Write-Host "`n  Press SPACEBAR to continue..." -ForegroundColor DarkGray
+    do { $key = $Host.UI.RawUI.ReadKey('NoEcho,IncludeKeyDown') } while ($key.Character -ne ' ')
+    Write-Host ""
+}
 #endregion
 
 
@@ -177,6 +191,10 @@ Get-Pfa2PodReplicaLink -Array $ProdFa -LocalPodName $ProdPod | Format-Table Stat
 Write-Host "  Allowing the baseline write to replicate to DR..." -ForegroundColor DarkGray
 Start-Sleep -Seconds 20
 
+Wait-Spacebar `
+    -Summary  "Confirmed $DbName is online on $ProdSqlServer and seeded dbo.DR_DemoLog with a PROD baseline row. The pod $ProdPod is continuously replicating to the demoted DR pod $DrPod on $DrArray." `
+    -Highlight "ActiveDR replicates continuously with no RPO gap and no backup schedule. The DR pod holds a current, consistent copy of the data at all times. It is demoted — holding the data but not serving writes — ready for a failover trigger."
+
 
 ##############################################################################################################################
 #  PART 1 — Non-disruptive DR TEST (read/write at DR, production untouched)
@@ -206,6 +224,10 @@ Write-Host "  [5] Production was untouched — DR_DemoLog on PROD has NO DR-TEST
 Invoke-DbaQuery -SqlInstance $ProdInst -Database $DbName -Query "SELECT Id, Site, Note, WrittenAt FROM dbo.DR_DemoLog ORDER BY Id" | Format-Table -AutoSize
 Write-Host "  ✓ DR rehearsed with full read/write and ZERO production impact." -ForegroundColor Green
 
+Wait-Spacebar `
+    -Summary  "Promoted $DrPod on $DrArray, onlined $DbName on $DrSqlServer, inserted a test row to prove read/write access, then demoted the DR pod discarding the test write, and resumed replication — $ProdSqlServer ran without interruption throughout." `
+    -Highlight "A full read/write DR rehearsal with zero production impact and no maintenance window. No other DR technology lets you test write operations at the DR site while production keeps running. This is the ActiveDR differentiator."
+
 
 ##############################################################################################################################
 #  PART 2 — Unplanned failover to DR
@@ -227,6 +249,10 @@ Invoke-DbaQuery -SqlInstance $DrInst -Database $DbName -Query "INSERT dbo.DR_Dem
 Write-Host "      DR_DemoLog at DR (now the system of record):" -ForegroundColor Cyan
 Invoke-DbaQuery -SqlInstance $DrInst -Database $DbName -Query "SELECT Id, Site, Note, WrittenAt FROM dbo.DR_DemoLog ORDER BY Id" | Format-Table -AutoSize
 Write-Host "  ✓ DR is serving the application. Remember the row: '$drStamp'" -ForegroundColor Green
+
+Wait-Spacebar `
+    -Summary  "Simulated a production outage. Promoted $DrPod, onlined $DbName on $DrSqlServer, and wrote a timestamped row representing live application activity in DR. The Azure EverPure site is now the system of record." `
+    -Highlight "Unplanned failover is two operations: promote the pod, online the database — DR site live in seconds. The DR write is tracked. It must travel back to production during failback to prove zero data loss on the reverse sync. Watch for it in Part 3."
 
 
 ##############################################################################################################################
