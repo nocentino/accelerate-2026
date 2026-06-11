@@ -1,5 +1,7 @@
 # Accelerate 2026 — SQL Server Disaster Recovery on Pure Storage
 
+**Session: _Maximizing Hybrid SQL Server 2025 on Azure with EverPure Cloud_**
+
 PowerShell demos showing **SQL Server 2022/2025 disaster recovery on Pure Storage FlashArray**,
 spanning on-premises and Azure. They combine SQL Server's T‑SQL Snapshot Backup with Pure
 Storage array snapshots, asynchronous PGroup replication, and **ActiveDR** continuous
