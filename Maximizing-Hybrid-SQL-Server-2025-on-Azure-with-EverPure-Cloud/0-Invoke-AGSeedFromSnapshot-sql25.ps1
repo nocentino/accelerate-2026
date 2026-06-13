@@ -110,7 +110,6 @@ $S3BackupPath     = 's3://s200.fsa.lab/aen-sql-backups'
 # SSH key for aen-sql-25-e (Azure — uses SSH-based remoting instead of WinRM)
 $SshUser    = 'anocentino'
 $SshKeyPath = "$HOME\.ssh\id_ed25519_aen_sql25"
-
 #endregion Variables
 
 
@@ -120,16 +119,16 @@ Write-Host "`n╔═════════════════════
 Write-Host   "║  Connecting to Resources on-prem and in Azure...         ║" -ForegroundColor Cyan
 Write-Host   "╚══════════════════════════════════════════════════════════╝" -ForegroundColor Cyan
 
-# aen-sql-25-d is on-prem: WinRM
-$OnPremSession2 = New-PSSession -ComputerName $OnPremSqlServer2
+
+# aen-sql-25-d is on-prem
+$OnPremSession2 = New-PSSession -ComputerName $OnPremSqlServer2 
 # aen-sql-25-e is Azure: SSH key-based remoting
 $CloudSession   = New-PSSession -HostName $CloudSqlServer -UserName $SshUser -KeyFilePath $SshKeyPath -SSHTransport
 
 # Persistent SMO connections (-NonPooledConnection keeps the session alive while the database is frozen)
-$SqlCredential = Import-Clixml -Path "$HOME\SA_Cred.xml"
-$SqlInstanceOnPrem1 = Connect-DbaInstance -SqlInstance $OnPremSqlServer1 -SqlCredential $SqlCredential -TrustServerCertificate -NonPooledConnection
-$SqlInstanceOnPrem2 = Connect-DbaInstance -SqlInstance $OnPremSqlServer2 -SqlCredential $SqlCredential -TrustServerCertificate -NonPooledConnection
-$SqlInstanceCloud   = Connect-DbaInstance -SqlInstance $CloudSqlServer   -SqlCredential $SqlCredential -TrustServerCertificate -NonPooledConnection
+$SqlInstanceOnPrem1 = Connect-DbaInstance -SqlInstance $OnPremSqlServer1 -TrustServerCertificate -NonPooledConnection
+$SqlInstanceOnPrem2 = Connect-DbaInstance -SqlInstance $OnPremSqlServer2 -TrustServerCertificate -NonPooledConnection
+$SqlInstanceCloud   = Connect-DbaInstance -SqlInstance $CloudSqlServer   -TrustServerCertificate -NonPooledConnection
 
 $Credential        = Import-CliXml -Path "$HOME\FA_Cred.xml"
 $FlashArrayOnPrem1 = Connect-Pfa2Array -EndPoint $OnPremArrayName1 -Credential $Credential -IgnoreCertificateError
@@ -314,9 +313,9 @@ Write-Host "      ✓ [$DbName] joined [$AgName] — $OnPremSqlServer2 is a sync
 
 # ── [H] Verify AG sync state ────────────────────────────────────────────────────
 Write-Host "`n  [H] Verifying AG sync state..." -ForegroundColor Yellow
-Get-DbaAgDatabase -SqlInstance $SqlInstanceOnPrem1 -AvailabilityGroup $AgName |
-    Select-Object ComputerName, AvailabilityGroup, Name, SynchronizationState, IsJoined, IsSuspended |
-    Format-Table -AutoSize
+$SqlInstanceOnPrem2 = Connect-DbaInstance -SqlInstance $SqlInstanceOnPrem2 -TrustServerCertificate -NonPooledConnection
+Get-DbaAgReplica -SqlInstance $SqlInstanceOnPrem2 -Replica $OnPremSqlServer2 | Select-Object Name, Role, ConnectionState, RollupSynchronizationState | Format-Table
+
 
 Write-Host "  ── Part 1 complete ──────────────────────────────────────────────────────────────" -ForegroundColor Cyan
 Write-Host "     [$DbName] seeded and synchronizing on $OnPremSqlServer2" -ForegroundColor White
@@ -425,9 +424,10 @@ Write-Host "      ✓ $CloudSqlServer joined [$AgName] as secondary replica" -Fo
 
 # ── [H] Verify final AG sync state across all three replicas ────────────────────
 Write-Host "`n  [H] Verifying final AG sync state across all three replicas..." -ForegroundColor Yellow
-Get-DbaAgDatabase -SqlInstance $SqlInstanceOnPrem1 -AvailabilityGroup $AgName |
-    Select-Object ComputerName, AvailabilityGroup, Name, SynchronizationState, IsJoined, IsSuspended |
-    Format-Table -AutoSize
+$sqlinstanceCloud = Connect-DbaInstance -SqlInstance $CloudSqlServer -SqlCredential $SqlCredential -TrustServerCertificate -NonPooledConnection
+Get-DbaAgReplica -SqlInstance $SqlInstanceCloud -Replica $CloudSqlServer | Select-Object Name, Role, ConnectionState, RollupSynchronizationState | Format-Table
+
+
 
 Write-Host "  ── Part 2 complete ──────────────────────────────────────────────────────────────" -ForegroundColor Cyan
 Write-Host "     [$DbName] seeded and synchronizing on $CloudSqlServer" -ForegroundColor White

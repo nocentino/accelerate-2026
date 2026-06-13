@@ -4,7 +4,7 @@
 #
 # Scenario:
 #    An unplanned outage has taken down the on-prem site (aen-sql-25-c and
-#    aen-sql-25-d).  We force failover AG1 to the Azure EverPure Cloud replica
+#    aen-sql-25-d).  We force failover AG1 to the Azure EverPure replica
 #    (aen-sql-25-e / gso-cbs-azure.fsa.lab) to restore service.
 #
 #    Once the on-prem site recovers, we reseed both on-prem replicas from a
@@ -12,7 +12,7 @@
 #    on-prem arrays, using the T-SQL Snapshot Backup feature to generate the
 #    .bkm metadata file needed to rejoin the AG.
 #
-#    Part 1 - Forced failover to aen-sql-25-e (Azure EverPure Cloud)
+#    Part 1 - Forced failover to aen-sql-25-e (Azure EverPure)
 #    Part 2 - Show AG status; observe on-prem replicas need reseeding
 #    Part 3 - On-prem site recovers; freeze the cloud primary and snapshot it,
 #             replicating back to both on-prem arrays
@@ -78,14 +78,14 @@ function Wait-Spacebar {
 # In THIS failover the cloud (aen-sql-25-e) is the new primary / snapshot source.
 
 # SQL Server instances
-$CloudSqlServer   = 'aen-sql-25-e'   # Azure EverPure Cloud - becomes new primary after failover
+$CloudSqlServer   = 'aen-sql-25-e'   # Azure EverPure - becomes new primary after failover
 $OnPremSqlServer1 = 'aen-sql-25-c'   # On-prem replica 1 - needs reseed after recovery
 $OnPremSqlServer2 = 'aen-sql-25-d'   # On-prem replica 2 - needs reseed after recovery
 $AgName           = 'ag1'
 $DbName           = 'TPCC-4T'   # same DB the companion seed script (Invoke-AGSeedFromSnapshot-sql25.ps1) uses
 
 # FlashArray endpoints
-$CloudArrayName   = 'gso-cbs-azure.fsa.lab'                              # Azure EverPure Cloud (new primary array)
+$CloudArrayName   = 'gso-cbs-azure.fsa.lab'                              # Azure EverPure (new primary array)
 $OnPremArrayName1 = 'sn1-x90r2-f06-33.fsa.lab'  # On-prem array for aen-sql-25-c
 $OnPremArrayName2 = 'sn1-x90r2-f06-27.fsa.lab'  # On-prem array for aen-sql-25-d
 
@@ -101,15 +101,15 @@ $CloudFaDataVol = 'gso-an-win-1-SQLDATA1'  # Azure data vol (20 TB,  Disk 1)
 $CloudFaLogVol  = 'gso-an-win-1-SQLLOG1'   # Azure log vol  (512 GB, Disk 2)
 
 # FlashArray volume names on-prem (overwrite targets during reseed)
-$OnPremFaDataVol1 = 'vvol-aen-sql-25-c-a55a37f5-vg/Data-0a463e4a'  # aen-sql-25-c data vol (20 TB,  Hard disk 4, D:)
-$OnPremFaLogVol1  = 'vvol-aen-sql-25-c-a55a37f5-vg/Data-441252f7'  # aen-sql-25-c log vol  (512 GB, Hard disk 5, L:)
-$OnPremFaDataVol2 = 'vvol-aen-sql-25-d-a9ecd10d-vg/Data-769a59a9'  # aen-sql-25-d data vol (20 TB,  D:)
-$OnPremFaLogVol2  = 'vvol-aen-sql-25-d-a9ecd10d-vg/Data-3f854849'  # aen-sql-25-d log vol  (512 GB, L:)
+$OnPremFaDataVol1 = 'vvol-aen-sql-25-c-a55a37f5-vg/Data-c8f8057c'  # aen-sql-25-c data vol (20 TB,  Disk 3)
+$OnPremFaLogVol1  = 'vvol-aen-sql-25-c-a55a37f5-vg/Data-441252f7'  # aen-sql-25-c log vol  (512 GB, Disk 5)
+$OnPremFaDataVol2 = 'vvol-aen-sql-25-d-7050d50f-vg/Data-fd4e545a'  # aen-sql-25-d data vol (20 TB,  Disk 3)
+$OnPremFaLogVol2  = 'vvol-aen-sql-25-d-7050d50f-vg/Data-3c4b9c97'  # aen-sql-25-d log vol  (512 GB, Disk 5)
 
 # Windows disk serial numbers on the on-prem servers (from Get-Disk)
-$OnPremDataDiskSN1 = '6000c29f3954ac54e78cfddf283aaae7'  # aen-sql-25-c D: data disk (20 TB,  Disk 3)
+$OnPremDataDiskSN1 = '6000c29a29d8a15135d8972104b80024'  # aen-sql-25-c D: data disk (20 TB,  Disk 3)
 $OnPremLogDiskSN1  = '6000c29af911842f6dd25fd7bd55a8bc'  # aen-sql-25-c L: log disk  (512 GB, Disk 5)
-$OnPremDataDiskSN2 = '6000c292e84613da877cc244d52bd78a'  # aen-sql-25-d D: data disk (20 TB,  Disk 3)
+$OnPremDataDiskSN2 = '6000c29668589f61a386218139e21bb0'  # aen-sql-25-d D: data disk (20 TB,  Disk 3)
 $OnPremLogDiskSN2  = '6000c2961b1c81cd6cd067157dcb0836'  # aen-sql-25-d L: log disk  (512 GB, Disk 5)
 
 # S3 backup endpoint (FlashBlade s200.fsa.lab)
@@ -148,7 +148,7 @@ Invoke-DbaQuery -SqlInstance $SqlInstanceCloud -Database master -Query $Query
 Write-Host "      ✓ Failover complete — $CloudSqlServer is the new primary" -ForegroundColor Green
 
 Wait-Spacebar `
-    -Summary  "Issued FORCE_FAILOVER_ALLOW_DATA_LOSS on $CloudSqlServer. The Azure EverPure Cloud replica is now the AG primary. Transactions not yet replicated from the failed on-prem site are permanently lost — this is the accepted cost of an unplanned failover." `
+    -Summary  "Issued FORCE_FAILOVER_ALLOW_DATA_LOSS on $CloudSqlServer. The Azure EverPure replica is now the AG primary. Transactions not yet replicated from the failed on-prem site are permanently lost — this is the accepted cost of an unplanned failover." `
     -Highlight "SQL Server requires you to name the risk explicitly in T-SQL: FORCE_FAILOVER_ALLOW_DATA_LOSS. Without Pure Storage snapshot-based reseed, recovering the on-prem secondaries would require a full database backup stream. We are about to show a better way."
 
 
@@ -163,13 +163,17 @@ Write-Host   "║  PART 2 — Review AG Status                               ║
 Write-Host   "╚══════════════════════════════════════════════════════════╝" -ForegroundColor Cyan
 
 Write-Host "`n  $CloudSqlServer is the new primary. $OnPremSqlServer1 and $OnPremSqlServer2 will show" -ForegroundColor DarkGray
-
-# ── [1] Show replica status ─────────────────────────────────────────────────────"
+Write-Host   "  DISCONNECTED / NOT SYNCHRONIZ
+# ── [1] Show replica status ─────────────────────────────────────────────────────
 Write-Host "`n  [1] AG replica status..." -ForegroundColor Yellow
-$SqlInstanceCloud = Connect-DbaInstance -SqlInstance $CloudSqlServer -TrustServerCertificate -nonPooledConnection 
-Get-DbaAgReplica -SqlInstance $SqlInstanceCloud | Select-Object Name, Role, ConnectionState, RollupSynchronizationState | Format-Table
+Get-DbaAgReplica  -SqlInstance $SqlInstanceCloud -AvailabilityGroup $AgName |
+    Format-Table AvailabilityGroup, Name, Role, ConnectionState, SynchronizationHealth
 
-Write-Host "      ✓ Both on-prem replicas ($OnPremSqlServer1 and $OnPremSqlServer2) are CONNECTED  / NOT SYNCHRONIZING — they fell behind the forced failover point and cannot self-heal." -ForegroundColor DarkGray
+# ── [2] Show database sync status ───────────────────────────────────────────────
+Write-Host "  [2] AG database sync status..." -ForegroundColor Yellow
+Get-DbaAgDatabase -SqlInstance $SqlInstanceCloud -AvailabilityGroup $AgName |
+    Format-Table AvailabilityGroup, Replica, Name, SynchronizationState, SynchronizationHealth
+ING and must be reseeded before they can rejoin." -ForegroundColor DarkGray
 
 Wait-Spacebar `
     -Summary  "Queried replica and database sync states from the new primary $CloudSqlServer. Both on-prem replicas ($OnPremSqlServer1 and $OnPremSqlServer2) are DISCONNECTED / NOT SYNCHRONIZING — they fell behind the forced failover point and cannot self-heal." `
@@ -221,12 +225,10 @@ Write-Host "        Target PGroup (-d)        : $OnPremTargetPGroup2" -Foregroun
 # Part 1 timed out and reconnected internally, step 6 would land on a different
 # session and see "database is not suspended".
 Write-Host "`n  [3] Connecting to all SQL instances..." -ForegroundColor Yellow
-$SqlInstanceCloud   = Connect-DbaInstance -SqlInstance $CloudSqlServer   -TrustServerCertificate -NonPooledConnection
-$SqlInstanceOnPrem1 = Connect-DbaInstance -SqlInstance $OnPremSqlServer1 -TrustServerCertificate -NonPooledConnection
-$SqlInstanceOnPrem2 = Connect-DbaInstance -SqlInstance $OnPremSqlServer2 -TrustServerCertificate -NonPooledConnection
-# Local admin credential for workgroup WinRM sessions
-$LocalCredential = Import-Clixml -Path "$HOME\anocentino_Cred.xml"
-$OnPremSession1 = New-PSSession -ComputerName $OnPremSqlServer1 
+$SqlInstanceCloud   = Connect-DbaInstance -SqlInstance $CloudSqlServer   -SqlCredential $SqlCredential -TrustServerCertificate -NonPooledConnection
+$SqlInstanceOnPrem1 = Connect-DbaInstance -SqlInstance $OnPremSqlServer1 -SqlCredential $SqlCredential -TrustServerCertificate -NonPooledConnection
+$SqlInstanceOnPrem2 = Connect-DbaInstance -SqlInstance $OnPremSqlServer2 -SqlCredential $SqlCredential -TrustServerCertificate -NonPooledConnection
+$OnPremSession1 = New-PSSession -ComputerName $OnPremSqlServer1
 $OnPremSession2 = New-PSSession -ComputerName $OnPremSqlServer2
 Write-Host "      ✓ Connected to $CloudSqlServer, $OnPremSqlServer1, $OnPremSqlServer2" -ForegroundColor Green
 
@@ -235,7 +237,7 @@ Write-Host "      ✓ Connected to $CloudSqlServer, $OnPremSqlServer1, $OnPremSq
 # ── [4] Freeze write I/O on the new primary (cloud) ─────────────────────────────
 Write-Host "`n  [4] Freezing write I/O on $CloudSqlServer..." -ForegroundColor Yellow
 $Query = "ALTER DATABASE [$DbName] SET SUSPEND_FOR_SNAPSHOT_BACKUP = ON"
-Invoke-DbaQuery -SqlInstance $SqlInstanceCloud -Query $Query
+Invoke-DbaQuery -SqlInstance $SqlInstanceCloud -Query $Query -EnableException
 Write-Host "      ✓ [$DbName] write I/O suspended — snapshot window is open" -ForegroundColor Green
 
 
@@ -260,19 +262,32 @@ BACKUP DATABASE [$DbName]
     WITH METADATA_ONLY,
          MEDIADESCRIPTION = '$($CloudSnapshot.Name)|$($FlashArrayCloud.ArrayName)'
 "@
-Invoke-DbaQuery -SqlInstance $SqlInstanceCloud -Query $Query 
+Invoke-DbaQuery -SqlInstance $SqlInstanceCloud -Query $Query -EnableException
 Write-Host "      ✓ [$DbName] is writeable again — freeze released" -ForegroundColor Green
 Write-Host "        Backup URL  : $BackupUrl" -ForegroundColor White
 
 
+
+# ── [7] Bridging log backup for both on-prem secondaries ────────────────────────
+Write-Host "`n  [7] Taking bridging log backup for both on-prem secondaries..." -ForegroundColor Yellow
+$LogBackupUrl = "$S3BackupPath/$DbName-cloud-seed-$(Get-Date -Format FileDateTime).trn"
+# INIT overwrites the URL target; FORMAT is intentionally omitted so the log backup
+# continues the existing chain from the last backup's LSN. FORMAT would start a fresh
+# media set whose first_lsn may be AFTER the snapshot LSN if any automated log backup
+# ran between step [6] and here, which causes RESTORE LOG to fail with 'Could not redo'.
+$Query = "BACKUP LOG [$DbName] TO URL = '$LogBackupUrl' WITH INIT"
+Invoke-DbaQuery -SqlInstance $SqlInstanceCloud -Database master -Query $Query -EnableException
+Write-Host "      ✓ Log backup written : $LogBackupUrl" -ForegroundColor Green
+
 Write-Host "`n  ── Cloud snapshot phase complete ────────────────────────────────────────────────" -ForegroundColor Cyan
 Write-Host "     Snapshot : $($CloudSnapshot.Name)" -ForegroundColor White
 Write-Host "     Backup   : $BackupUrl" -ForegroundColor White
+Write-Host "     Log      : $LogBackupUrl" -ForegroundColor White
 Write-Host "     Status   : Replicating asynchronously to both on-prem arrays" -ForegroundColor White
 
 Wait-Spacebar `
     -Summary  "Reconnected to all instances. Froze $CloudSqlServer, took a PGroup snapshot on $CloudArrayName, released the freeze with a METADATA_ONLY .bkm backup, and captured a bridging log backup — all targeting both on-prem arrays simultaneously." `
-    -Highlight "Replication direction has reversed: Azure EverPure Cloud is now the snapshot SOURCE and both on-prem arrays are the targets. The same Pure Storage + T-SQL Snapshot Backup workflow operates identically cloud-to-on-prem and on-prem-to-cloud."
+    -Highlight "Replication direction has reversed: Azure EverPure is now the snapshot SOURCE and both on-prem arrays are the targets. The same Pure Storage + T-SQL Snapshot Backup workflow operates identically cloud-to-on-prem and on-prem-to-cloud."
 
 
 ##############################################################################################################################
@@ -321,15 +336,12 @@ Write-Host "      ✓ Snapshot available on $OnPremArrayName1 at $($OnPremTarget
 # Must happen while the original files are still accessible. SQL Server will
 # return error 21 (device not ready) if SET HADR OFF runs after the disks are
 # overwritten with snapshot data.
-Write-Host "`n  [A1] Removing [$DbName] from AG and dropping on $OnPremSqlServer1 (secondary only)..." -ForegroundColor Yellow
-# SET HADR OFF works whether the database is ONLINE or RESTORING (common after a forced failover).
-# DROP DATABASE unconditionally releases all file handles regardless of database state —
-# safer than SET OFFLINE, which fails on a RESTORING database.
+Write-Host "`n  [A1] Detaching [$DbName] from AG on $OnPremSqlServer1 (secondary only)..." -ForegroundColor Yellow
 $Query = "ALTER DATABASE [$DbName] SET HADR OFF"
-Invoke-DbaQuery -SqlInstance $SqlInstanceOnPrem1 -Database master -Query $Query 
-$Query = "DROP DATABASE [$DbName]"
-Invoke-DbaQuery -SqlInstance $SqlInstanceOnPrem1 -Database master -Query $Query 
-Write-Host "      ✓ [$DbName] dropped on $OnPremSqlServer1 — file handles released, safe to overwrite disks" -ForegroundColor Green
+Invoke-DbaQuery -SqlInstance $SqlInstanceOnPrem1 -Database master -Query $Query
+$Query = "ALTER DATABASE [$DbName] SET OFFLINE WITH ROLLBACK IMMEDIATE"
+Invoke-DbaQuery -SqlInstance $SqlInstanceOnPrem1 -Database master -Query $Query
+Write-Host "      ✓ [$DbName] removed from AG and offlined on $OnPremSqlServer1 — safe to overwrite disks" -ForegroundColor Green
 
 
 
@@ -370,18 +382,10 @@ Write-Host "      ✓ Data and log disks are online on $OnPremSqlServer1" -Foreg
 
 # ── [E] Restore metadata backup (NORECOVERY) ────────────────────────────────────
 Write-Host "`n  [E] Restoring metadata backup on $OnPremSqlServer1 (NORECOVERY)..." -ForegroundColor Yellow
-# No REPLACE needed — database was dropped in [A1] so there is nothing to overwrite.
-$Query = "RESTORE DATABASE [$DbName] FROM URL = '$BackupUrl' WITH METADATA_ONLY, NORECOVERY"
+$Query = "RESTORE DATABASE [$DbName] FROM URL = '$BackupUrl' WITH METADATA_ONLY, REPLACE, NORECOVERY"
 Invoke-DbaQuery -SqlInstance $SqlInstanceOnPrem1 -Database master -Query $Query 
 Write-Host "      ✓ [$DbName] is in RESTORING state on $OnPremSqlServer1" -ForegroundColor Green
 
-
-# ── [E1] Take bridging log backup on the cloud primary ───────────────────────────────
-Write-Host "`n  [E1] Taking bridging log backup on $CloudSqlServer..." -ForegroundColor Yellow
-$LogBackupUrl = "$S3BackupPath/$DbName-cloud-seed-$(Get-Date -Format FileDateTime).trn"
-$Query = "BACKUP LOG [$DbName] TO URL = '$LogBackupUrl'"
-Invoke-DbaQuery -SqlInstance $SqlInstanceCloud -Database master -Query $Query
-Write-Host "      ✓ Log backup written : $LogBackupUrl" -ForegroundColor Green
 
 
 # ── [F] Restore bridging log backup ─────────────────────────────────────────────
@@ -402,9 +406,9 @@ Write-Host "      ✓ $OnPremSqlServer1 rejoined [$AgName] as a synchronizing re
 
 # ── [H] Verify sync state on aen-sql-25-c ───────────────────────────────────────
 Write-Host "`n  [H] Verifying sync state on $OnPremSqlServer1..." -ForegroundColor Yellow
-$SqlInstanceOnPrem1 = Connect-DbaInstance -SqlInstance $OnPremSqlServer1 -TrustServerCertificate -NonPooledConnection
-Get-DbaAgReplica -SqlInstance $SqlInstanceOnPrem1 -Replica $OnPremSqlServer1 | Select-Object Name, Role, ConnectionState, RollupSynchronizationState | Format-Table
-
+Get-DbaAgDatabase -SqlInstance $SqlInstanceCloud -AvailabilityGroup $AgName |
+    Select-Object ComputerName, AvailabilityGroup, Name, SynchronizationState, IsJoined, IsSuspended |
+    Format-Table -AutoSize
 
 Write-Host "  ── Part 4 complete (aen-sql-25-c reseeded) ──────────────────────────────────────" -ForegroundColor Cyan
 Write-Host "     Snapshot : $($OnPremTargetSnapshot1.Name)" -ForegroundColor White
@@ -412,7 +416,7 @@ Write-Host "     Log      : $LogBackupUrl" -ForegroundColor White
 
 Wait-Spacebar `
     -Summary  "Waited for the Azure snapshot to arrive on $OnPremArrayName1. Offlined $OnPremSqlServer1 disks, overwrote the volumes from the replicated snapshot, onlined the disks, restored the .bkm metadata file and bridging log, then rejoined $OnPremSqlServer1 to $AgName as a synchronizing replica." `
-    -Highlight "A 4 TB replica reseeded from a flash copy entirely in storage — no network backup transfer, no SQL Server I/O for the data files. The METADATA_ONLY restore just registers the database headers so SQL Server can rejoin the AG."
+    -Highlight "A 20 TB replica reseeded from a flash copy entirely in storage — no network backup transfer, no SQL Server I/O for the data files. The METADATA_ONLY restore just registers the database headers so SQL Server can rejoin the AG."
 
 
 ##############################################################################################################################
@@ -461,15 +465,12 @@ Write-Host "      ✓ Snapshot available on $OnPremArrayName2 at $($OnPremTarget
 # Must happen while the original files are still accessible. SQL Server will
 # return error 21 (device not ready) if SET HADR OFF runs after the disks are
 # overwritten with snapshot data.
-Write-Host "`n  [A1] Removing [$DbName] from AG and dropping on $OnPremSqlServer2 (secondary only)..." -ForegroundColor Yellow
-# SET HADR OFF works whether the database is ONLINE or RESTORING (common after a forced failover).
-# DROP DATABASE unconditionally releases all file handles regardless of database state —
-# safer than SET OFFLINE, which fails on a RESTORING database.
+Write-Host "`n  [A1] Detaching [$DbName] from AG on $OnPremSqlServer2 (secondary only)..." -ForegroundColor Yellow
 $Query = "ALTER DATABASE [$DbName] SET HADR OFF"
-Invoke-DbaQuery -SqlInstance $SqlInstanceOnPrem2 -Database master -Query $Query 
-$Query = "DROP DATABASE [$DbName]"
-Invoke-DbaQuery -SqlInstance $SqlInstanceOnPrem2 -Database master -Query $Query 
-Write-Host "      ✓ [$DbName] dropped on $OnPremSqlServer2 — file handles released, safe to overwrite disks" -ForegroundColor Green
+Invoke-DbaQuery -SqlInstance $SqlInstanceOnPrem2 -Database master -Query $Query
+$Query = "ALTER DATABASE [$DbName] SET OFFLINE WITH ROLLBACK IMMEDIATE"
+Invoke-DbaQuery -SqlInstance $SqlInstanceOnPrem2 -Database master -Query $Query -EnableException
+Write-Host "      ✓ [$DbName] removed from AG and offlined on $OnPremSqlServer2 — safe to overwrite disks" -ForegroundColor Green
 
 
 
@@ -510,9 +511,8 @@ Write-Host "      ✓ Data and log disks are online on $OnPremSqlServer2" -Foreg
 
 # ── [E] Restore metadata backup (NORECOVERY) ────────────────────────────────────
 Write-Host "`n  [E] Restoring metadata backup on $OnPremSqlServer2 (NORECOVERY)..." -ForegroundColor Yellow
-# No REPLACE needed — database was dropped in [A1] so there is nothing to overwrite.
-$Query = "RESTORE DATABASE [$DbName] FROM URL = '$BackupUrl' WITH METADATA_ONLY, NORECOVERY"
-Invoke-DbaQuery -SqlInstance $SqlInstanceOnPrem2 -Database master -Query $Query 
+$Query = "RESTORE DATABASE [$DbName] FROM URL = '$BackupUrl' WITH METADATA_ONLY, REPLACE, NORECOVERY"
+Invoke-DbaQuery -SqlInstance $SqlInstanceOnPrem2 -Database master -Query $Query -EnableException
 Write-Host "      ✓ [$DbName] is in RESTORING state on $OnPremSqlServer2" -ForegroundColor Green
 
 
@@ -520,7 +520,7 @@ Write-Host "      ✓ [$DbName] is in RESTORING state on $OnPremSqlServer2" -For
 # ── [F] Restore bridging log backup ─────────────────────────────────────────────
 Write-Host "`n  [F] Restoring bridging log backup on $OnPremSqlServer2..." -ForegroundColor Yellow
 $Query = "RESTORE LOG [$DbName] FROM URL = '$LogBackupUrl' WITH NORECOVERY"
-Invoke-DbaQuery -SqlInstance $SqlInstanceOnPrem2 -Database master -Query $Query 
+Invoke-DbaQuery -SqlInstance $SqlInstanceOnPrem2 -Database master -Query $Query -EnableException
 Write-Host "      ✓ Log backup applied — [$DbName] ready for AG rejoin on $OnPremSqlServer2" -ForegroundColor Green
 
 
@@ -528,18 +528,19 @@ Write-Host "      ✓ Log backup applied — [$DbName] ready for AG rejoin on $O
 # ── [G] Rejoin secondary to AG ──────────────────────────────────────────────────
 Write-Host "`n  [G] Rejoining $OnPremSqlServer2 to AG [$AgName]..." -ForegroundColor Yellow
 $Query = "ALTER DATABASE [$DbName] SET HADR AVAILABILITY GROUP = [$AgName]"
-Invoke-DbaQuery -SqlInstance $SqlInstanceOnPrem2 -Database master -Query $Query 
+Invoke-DbaQuery -SqlInstance $SqlInstanceOnPrem2 -Database master -Query $Query -EnableException
 Write-Host "      ✓ $OnPremSqlServer2 rejoined [$AgName] as a synchronizing replica" -ForegroundColor Green
 
 
 
 # ── [H] Final AG status across all three replicas ───────────────────────────────
-# Query from the primary (cloud) — secondaries only see their own local state and
-# report other replicas as Unknown.
 Write-Host "`n  [H] Final AG status across all three replicas..." -ForegroundColor Yellow
-$sqlinstanceCloud = Connect-DbaInstance -SqlInstance $CloudSqlServer -SqlCredential $SqlCredential -TrustServerCertificate -NonPooledConnection
-Get-DbaAgReplica -SqlInstance $SqlInstanceCloud  | Select-Object Name, Role, ConnectionState, RollupSynchronizationState | Format-Table
+Get-DbaAgReplica  -SqlInstance $SqlInstanceCloud -AvailabilityGroup $AgName |
+    Format-Table AvailabilityGroup, Name, Role, ConnectionState, SynchronizationHealth
 
+Get-DbaAgDatabase -SqlInstance $SqlInstanceCloud -AvailabilityGroup $AgName |
+    Select-Object ComputerName, AvailabilityGroup, Name, SynchronizationState, IsJoined, IsSuspended |
+    Format-Table -AutoSize
 
 Write-Host "  ── Part 5 complete (aen-sql-25-d reseeded) ──────────────────────────────────────" -ForegroundColor Cyan
 Write-Host "     Snapshot : $($OnPremTargetSnapshot2.Name)" -ForegroundColor White
@@ -548,7 +549,7 @@ Write-Host "     Log      : $LogBackupUrl" -ForegroundColor White
 Write-Host "`n╔══════════════════════════════════════════════════════════╗" -ForegroundColor Green
 Write-Host   "║  Failover + reseed complete — AG healthy                 ║" -ForegroundColor Green
 Write-Host   "╚══════════════════════════════════════════════════════════╝" -ForegroundColor Green
-Write-Host "     New primary : $CloudSqlServer  (Azure EverPure Cloud)" -ForegroundColor White
+Write-Host "     New primary : $CloudSqlServer  (Azure EverPure)" -ForegroundColor White
 Write-Host "     Reseeded    : $OnPremSqlServer1, $OnPremSqlServer2  (on-prem)" -ForegroundColor White
 Write-Host "     Database    : [$DbName] in AG [$AgName]" -ForegroundColor White
 
@@ -562,13 +563,11 @@ Wait-Spacebar `
 #   PART 6 — Planned Failback to On-Prem (aen-sql-25-c)
 #
 #   With all three replicas healthy again, fail the AG back to on-prem with a
-#   zero-data-loss failover.
-#   reaching SYNCHRONIZED state:
+#   PLANNED (no data loss) failover:
 #     [1] Switch the cloud primary and the on-prem failback target to
-#         SYNCHRONOUS_COMMIT (both ends must be sync for a safe failover).
+#         SYNCHRONOUS_COMMIT (a no-data-loss failover requires BOTH ends sync).
 #     [2] Wait for aen-sql-25-c to reach the SYNCHRONIZED state.
-#     [3] Issue FAILOVER from aen-sql-25-c (becomes primary).
-#         Safe because SYNCHRONIZED guarantees both LSNs match — no data lost.
+#     [3] Issue a planned manual failover from aen-sql-25-c (becomes primary).
 #     [4] Return the cloud replica (aen-sql-25-e) to ASYNCHRONOUS_COMMIT so the
 #         WAN link is no longer in the synchronous commit path.
 #
@@ -612,9 +611,11 @@ Write-Host "      ✓ $OnPremSqlServer1 is SYNCHRONIZED — safe to fail back wi
 
 
 # ── [3] Planned manual failover to aen-sql-25-c ─────────────────────────────────
+# FAILOVER (not FORCE_FAILOVER_ALLOW_DATA_LOSS) is issued ON the target secondary
+# that is becoming the new primary.
 Write-Host "`n  [3] Performing planned failover of [$AgName] to $OnPremSqlServer1..." -ForegroundColor Yellow
-$Query = "ALTER AVAILABILITY GROUP [$AgName] FORCE_FAILOVER_ALLOW_DATA_LOSS"
-Invoke-DbaQuery -SqlInstance $SqlInstanceOnPrem1 -Database master -Query $Query 
+$Query = "ALTER AVAILABILITY GROUP [$AgName] FAILOVER"
+Invoke-DbaQuery -SqlInstance $SqlInstanceOnPrem1 -Database master -Query $Query
 Write-Host "      ✓ Failover complete — $OnPremSqlServer1 is the new primary" -ForegroundColor Green
 
 
@@ -627,27 +628,19 @@ $Query = @"
 ALTER AVAILABILITY GROUP [$AgName]
     MODIFY REPLICA ON N'$CloudSqlServer' WITH (AVAILABILITY_MODE = ASYNCHRONOUS_COMMIT);
 "@
-Invoke-DbaQuery -SqlInstance $SqlInstanceOnPrem1 -Database master -Query $Query 
+Invoke-DbaQuery -SqlInstance $SqlInstanceOnPrem1 -Database master -Query $Query
 Write-Host "      ✓ $CloudSqlServer set back to asynchronous commit" -ForegroundColor Green
 
 
-# ── Resume data movement on the cloud replica (optional, if you want to re-sync the cloud replica as a secondary after the failback)
-Write-Host "`n  [5] Resuming data movement on  $SqlInstanceOnPrem2 and $SqlInstanceCloud..." -ForegroundColor Yellow
-Resume-DbaAgDbDataMovement -SqlInstance $SqlInstanceOnPrem2 -Database $DbName -Confirm:$false
-Write-Host "      ✓ Data movement resumed on $SqlInstanceOnPrem2" -ForegroundColor Green
-
-Resume-DbaAgDbDataMovement -SqlInstance $SqlInstanceCloud -Database $DbName -Confirm:$false
-Write-Host "      ✓ Data movement resumed on $CloudSqlServer" -ForegroundColor Green
-
 
 # ── [5] Verify roles and sync state after failback ──────────────────────────────
-# Query from the NEW primary (aen-sql-25-c) — aen-sql-25-e is now a secondary
-# and would show the other replicas as Unknown.
 Write-Host "`n  [5] Verifying AG roles and sync state after failback..." -ForegroundColor Yellow
-$SqlInstanceOnPrem1 = Connect-DbaInstance -SqlInstance $OnPremSqlServer1 -SqlCredential $SqlCredential -TrustServerCertificate -NonPooledConnection
-Get-DbaAgReplica -SqlInstance $SqlInstanceOnPrem1 | Select-Object Name, Role, ConnectionState, RollupSynchronizationState | Format-Table
+Get-DbaAgReplica  -SqlInstance $SqlInstanceOnPrem1 -AvailabilityGroup $AgName |
+    Format-Table AvailabilityGroup, Name, Role, AvailabilityMode, ConnectionState, SynchronizationHealth
 
-
+Get-DbaAgDatabase -SqlInstance $SqlInstanceOnPrem1 -AvailabilityGroup $AgName |
+    Select-Object ComputerName, AvailabilityGroup, Name, SynchronizationState, IsJoined, IsSuspended |
+    Format-Table -AutoSize
 
 Write-Host "`n╔══════════════════════════════════════════════════════════╗" -ForegroundColor Green
 Write-Host   "║  Part 6 complete — failed back to on-prem                ║" -ForegroundColor Green
@@ -656,8 +649,9 @@ Write-Host "     Primary       : $OnPremSqlServer1 (on-prem)" -ForegroundColor W
 Write-Host "     Cloud replica : $CloudSqlServer (asynchronous commit)" -ForegroundColor White
 
 Wait-Spacebar `
-    -Summary  "Switched $CloudSqlServer and $OnPremSqlServer1 to SYNCHRONOUS_COMMIT, waited for $OnPremSqlServer1 to reach SYNCHRONIZED state, issued FORCE_FAILOVER_ALLOW_DATA_LOSS from $OnPremSqlServer1 (required by CLUSTER_TYPE = NONE), then returned $CloudSqlServer to ASYNCHRONOUS_COMMIT." `
-    -Highlight "Failover and failback of a 4 TB AG in under an hour with zero data loss. The same T-SQL commands and Pure Storage snapshot backup workflow operate identically for failover in either direction — on-prem to cloud or cloud to on-prem."
+    -Summary  "Switched $CloudSqlServer and $OnPremSqlServer1 to SYNCHRONOUS_COMMIT, waited for $OnPremSqlServer1 to reach SYNCHRONIZED state, issued a planned zero-data-loss FAILOVER from $OnPremSqlServer1, then returned $CloudSqlServer to ASYNCHRONOUS_COMMIT." `
+    -Highlight "Planned failback requires synchronous commit on both endpoints — SQL Server will not proceed until both are SYNCHRONIZED. The WAN link is in sync mode only for the brief failover window, then returns to async so on-prem write latency is not penalized by the round-trip to Azure."
+
 
 #region --- Reset (optional; gated by \$ResetDemo flag) ---
 $ResetDemo = $false
@@ -676,7 +670,6 @@ if ($ResetDemo) {
         $OnPremSqlServer1 = $SqlInstanceOnPrem1
         $OnPremSqlServer2 = $SqlInstanceOnPrem2
     }
-    $SqlInstanceOnPrem1 = Connect-DbaInstance -SqlInstance $SqlInstanceOnPrem1 -TrustServerCertificate -NonPooledConnection
     $PrimaryName  = (Get-DbaAgReplica -SqlInstance $SqlInstanceOnPrem1 -AvailabilityGroup $AgName |
                          Where-Object { $_.Role -eq 'Primary' } | Select-Object -First 1).Name
     $ShortPrimary = ($PrimaryName -split '\.')[0]
@@ -713,3 +706,8 @@ if ($ResetDemo) {
 #endregion
 
 
+#region --- Cleanup ---
+Get-DbaConnectedInstance | Disconnect-DbaInstance
+Remove-PSSession $OnPremSession1
+Remove-PSSession $OnPremSession2
+#endregion
