@@ -657,7 +657,7 @@ Write-Host "     Cloud replica : $CloudSqlServer (asynchronous commit)" -Foregro
 
 Wait-Spacebar `
     -Summary  "Switched $CloudSqlServer and $OnPremSqlServer1 to SYNCHRONOUS_COMMIT, waited for $OnPremSqlServer1 to reach SYNCHRONIZED state, issued FORCE_FAILOVER_ALLOW_DATA_LOSS from $OnPremSqlServer1 (required by CLUSTER_TYPE = NONE), then returned $CloudSqlServer to ASYNCHRONOUS_COMMIT." `
-    -Highlight "Failover and failback of a 4 TB AG in under an hour with zero data loss. The same T-SQL commands and Pure Storage snapshot backup workflow operate identically for failover in either direction — on-prem to cloud or cloud to on-prem."
+    -Highlight "Failover and failback of a 4 TB AG in minutes, independent of the size of data. The same T-SQL commands and Everpure snapshot backup workflow operate identically for failover in either direction — on-prem to cloud or cloud to on-prem."
 
 #region --- Reset (optional; gated by \$ResetDemo flag) ---
 $ResetDemo = $false
