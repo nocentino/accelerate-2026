@@ -19,7 +19,7 @@
 #             DR-written row is now present on-prem
 #
 #    KEY POINT: failback is driven by ActiveDR's storage-optimized replication —
-#    only the CHANGED BLOCKS since the failover move, never the full 4.5 TB
+#    only the CHANGED BLOCKS since the failover move, never the full 4 TB
 #    dataset. So failback time is a function of CHANGE, not database size.
 #
 # Prerequisites:
@@ -76,20 +76,24 @@ function Wait-Spacebar {
 #region --- Variables ---
 # Prod = aen-sql-25-c (on-prem, source pod)   DR = aen-sql-25-e (Azure EverPure, DR pod)
 # The same TPCC-4T-ADR database is owned by whichever side currently has its pod promoted.
+
+# SQL Server instances
+$ProdSqlServer   = 'aen-sql-25-c'                 # on-prem    — WinRM
+$DrSqlServer     = 'aen-sql-25-e'                 # Azure EverPure — SSH key remoting
 $DbName          = 'TPCC-4T-ADR'
 
-$ProdSqlServer   = 'aen-sql-25-c'                 # on-prem    — WinRM
-$DrSqlServer     = 'aen-sql-25-e'                 # Azure EPC  — SSH key remoting
-
+# FlashArray endpoints
 $ProdArray       = 'sn1-x90r2-f06-33.fsa.lab'     # production FlashArray
 $DrArray         = 'gso-cbs-azure.fsa.lab'        # Azure EverPure Cloud FlashArray
 
+# ActiveDR pods
 $ProdPod         = 'aen-sql-25-c-adr'             # local (source) pod
 $DrPod           = 'aen-sql-25-c-adr-dr'          # remote (DR) pod
 $DrConnName      = 'gso-cbs-azure'                # array connection prod -> DR
 
-$DataLetter      = 'E'    # data volume drive letter on both guests
-$LogLetter       = 'M'    # log  volume drive letter on both guests
+# RDM drive letters on both guests
+$DataLetter      = 'E'    # data volume drive letter
+$LogLetter       = 'M'    # log  volume drive letter
 
 # SSH key for aen-sql-25-e (Azure — uses SSH-based remoting instead of WinRM)
 $SshUser         = 'anocentino'
@@ -103,12 +107,9 @@ $ReplicaWaitMin  = 30     # bounded wait (minutes) for a resync to reach its tar
 
 
 #region --- Helpers ---
-function Write-Banner { param($Text, $Color = 'Cyan')
-    $w = 58
-    Write-Host "`n$('╔' + ('═' * $w) + '╗')" -ForegroundColor $Color
-    Write-Host   "$('║' + ('  ' + $Text).PadRight($w) + '║')" -ForegroundColor $Color
-    Write-Host   "$('╚' + ('═' * $w) + '╝')" -ForegroundColor $Color
-}
+# ActiveDR works at the storage/pod level, so these wrap the repeated guest-disk and
+# pod-state operations the PARTS below call. (The companion AG script inlines its disk
+# offline/online because those are simple one-liners; here they pin drive letters.)
 
 # Online the pod's two disks on a guest (by Pure serial) and pin the drive letters.
 function Online-Disks { param($Session, $DataSerial, $LogSerial, $DataLetter, $LogLetter)
@@ -128,6 +129,7 @@ function Online-Disks { param($Session, $DataSerial, $LogSerial, $DataLetter, $L
     }
 }
 
+# Offline the pod's two disks on a guest (by Pure serial).
 function Offline-Disks { param($Session, $DataSerial, $LogSerial)
     Invoke-Command -Session $Session -ScriptBlock {
         Get-Disk | Where-Object { $_.SerialNumber -in @($using:DataSerial, $using:LogSerial) } | Set-Disk -IsOffline $true
@@ -141,7 +143,7 @@ function Set-DbState { param($SqlInstance, $State)
     Invoke-DbaQuery -SqlInstance $SqlInstance -Database master -Query "ALTER DATABASE [$DbName] SET $State$clause"
 }
 
-# Wait until a pod reaches a promotion state, bounded.
+# Wait until a pod reaches a promotion state, bounded by $ReplicaWaitMin.
 function Wait-PodState { param($Array, $Name, $State)
     $deadline = (Get-Date).AddMinutes($ReplicaWaitMin)
     do {
@@ -163,7 +165,9 @@ function Get-PodSerials { param($Array, $Pod)
 
 
 #region --- Connections + volume serial discovery ---
-Write-Banner 'Connecting to resources on-prem and in Azure'
+Write-Host "`n╔══════════════════════════════════════════════════════════╗" -ForegroundColor Cyan
+Write-Host   "║  Connecting to resources on-prem and in Azure            ║" -ForegroundColor Cyan
+Write-Host   "╚══════════════════════════════════════════════════════════╝" -ForegroundColor Cyan
 
 # ── [1] Connect to both FlashArrays ─────────────────────────────────────────────
 Write-Host "`n  [1] Connecting to FlashArrays..." -ForegroundColor Yellow
@@ -198,7 +202,9 @@ Write-Host "      ✓ Serials resolved on both arrays" -ForegroundColor Green
 #
 ##############################################################################################################################
 
-Write-Banner 'PART 0 — Baseline on production' 'Green'
+Write-Host "`n╔══════════════════════════════════════════════════════════╗" -ForegroundColor Green
+Write-Host   "║  PART 0 — Baseline on production                         ║" -ForegroundColor Green
+Write-Host   "╚══════════════════════════════════════════════════════════╝" -ForegroundColor Green
 
 # ── [1] Ensure the database is ONLINE on production ─────────────────────────────
 Write-Host "`n  [1] Ensuring $DbName is ONLINE on $ProdSqlServer..." -ForegroundColor Yellow
@@ -238,7 +244,9 @@ Wait-Spacebar `
 #
 ##############################################################################################################################
 
-Write-Banner 'PART 1 — Non-disruptive DR test (R/W at DR)'
+Write-Host "`n╔══════════════════════════════════════════════════════════╗" -ForegroundColor Cyan
+Write-Host   "║  PART 1 — Non-disruptive DR test (R/W at DR)             ║" -ForegroundColor Cyan
+Write-Host   "╚══════════════════════════════════════════════════════════╝" -ForegroundColor Cyan
 
 # ── [1] Promote the DR pod for the test ─────────────────────────────────────────
 Write-Host "`n  [1] Promoting DR pod $DrPod (test) — production keeps running..." -ForegroundColor Yellow
@@ -259,14 +267,13 @@ Write-Host "      DR_DemoLog as seen at DR (note the DR-TEST row):" -ForegroundC
 Invoke-DbaQuery -SqlInstance $DrInst -Database $DbName -Query "SELECT Id, Site, Note, WrittenAt FROM dbo.DR_DemoLog ORDER BY Id" | Format-Table -AutoSize
 Write-Host "      ✓ Read/write confirmed at the DR site" -ForegroundColor Green
 
-wait-Spacebar `
-    -Summary  "Promoted $DrPod on $DrArray and onlined $DbName on $DrSqlServer, proving read/write access at the DR site by inserting a test row. The production site kept running with no interruption." `
-    -Highlight "This is the ActiveDR differentiator: you can test read/write operations at the DR site while production keeps running. No other DR technology lets you do this."
-
 # ── [4] End the test: offline DB + disks at DR and DEMOTE ───────────────────────
 Write-Host "`n  [4] Ending the test: offline DB+disks at DR and DEMOTE (discards the test write)..." -ForegroundColor Yellow
 Set-DbState   -SqlInstance $DrInst -State 'OFFLINE'
 Offline-Disks -Session $DrSession -DataSerial $DrSer.Data -LogSerial $DrSer.Log
+# DR is the link's TARGET pod, so it is demoted WITHOUT a quiesce flag (only the SOURCE
+# pod takes quiesce/skip-quiesce). Demoting it discards the DR test write and DR resyncs
+# from prod, which kept running throughout.
 Update-Pfa2Pod -Array $DrFa -Name $DrPod -RequestedPromotionState 'demoted' | Out-Null
 Wait-PodState -Array $DrFa -Name $DrPod -State 'demoted' | Out-Null
 Write-Host "      ✓ $DrPod demoted — replication resumed, test write discarded" -ForegroundColor Green
@@ -279,9 +286,10 @@ Write-Host "      ✓ DR rehearsed with full read/write and ZERO production impa
 Write-Host "  ── Part 1 complete (non-disruptive DR test) ─────────────────────────────────────" -ForegroundColor Cyan
 Write-Host "     DR site proved read/write; production ran without interruption" -ForegroundColor White
 
-wait-Spacebar `
-    -Summary  "The non-disruptive DR test promoted the DR pod and onlined the database at the DR site, proving read/write access by inserting a test row. The test ended by offlining the database and disks at DR and demoting the pod, which discarded the test write. Production was completely unaffected throughout." `
-    -Highlight "ActiveDR's continuous replication and storage-level integration enable this non-disruptive DR testing capability. You can validate your DR readiness with real workloads at the DR site, without any risk or impact to production."
+Wait-Spacebar `
+    -Summary  "Promoted $DrPod on $DrArray and onlined $DbName on $DrSqlServer, proved read/write access at the DR site by inserting a test row, then offlined the database and disks at DR and demoted the pod — discarding the test write. Production ran without interruption throughout." `
+    -Highlight "This is the ActiveDR differentiator: you can test read/write operations at the DR site while production keeps running. No other DR technology lets you validate DR readiness with real writes at zero risk or impact to production."
+
 
 ##############################################################################################################################
 #
@@ -289,7 +297,9 @@ wait-Spacebar `
 #
 ##############################################################################################################################
 
-Write-Banner 'PART 2 — UNPLANNED failover to DR' 'Red'
+Write-Host "`n╔══════════════════════════════════════════════════════════╗" -ForegroundColor Red
+Write-Host   "║  PART 2 — UNPLANNED failover to DR                       ║" -ForegroundColor Red
+Write-Host   "╚══════════════════════════════════════════════════════════╝" -ForegroundColor Red
 
 Write-Host "`n  [!] Simulated production outage. Promote DR to restore service." -ForegroundColor Red
 
@@ -313,12 +323,6 @@ Write-Host "      DR_DemoLog at DR (now the system of record):" -ForegroundColor
 Invoke-DbaQuery -SqlInstance $DrInst -Database $DbName -Query "SELECT Id, Site, Note, WrittenAt FROM dbo.DR_DemoLog ORDER BY Id" | Format-Table -AutoSize
 Write-Host "      ✓ DR is serving the application. Remember the row: '$drStamp'" -ForegroundColor Green
 
-
-# output the row from DR with a timestamp so we can track it through the failback in Part 3. This is the change that must travel back to production during failback to prove zero data loss on the reverse sync.    
-Invoke-DbaQuery -SqlInstance $DrInst -Database $DbName -Query "SELECT Id, Site, Note, WrittenAt FROM dbo.DR_DemoLog ORDER BY Id" | Format-Table -AutoSize
-Write-Host "      ✓ Read/write confirmed at the DR site" -ForegroundColor Green
-
-
 Wait-Spacebar `
     -Summary  "Simulated a production outage. Promoted $DrPod, onlined $DbName on $DrSqlServer, and wrote a timestamped row representing live application activity in DR. The Azure EverPure Cloud site is now the system of record." `
     -Highlight "Unplanned failover is two operations: promote the pod, online the database — DR site live in seconds. The DR write is tracked. It must travel back to production during failback to prove zero data loss on the reverse sync. Watch for it in Part 3."
@@ -330,7 +334,9 @@ Wait-Spacebar `
 #
 ##############################################################################################################################
 
-Write-Banner 'PART 3 — Reverse + failback to production' 'Green'
+Write-Host "`n╔══════════════════════════════════════════════════════════╗" -ForegroundColor Cyan
+Write-Host   "║  PART 3 — Reverse + failback to production               ║" -ForegroundColor Cyan
+Write-Host   "╚══════════════════════════════════════════════════════════╝" -ForegroundColor Cyan
 
 # ── [1] Production recovers — quiesce it so the prod pod can become the target ──
 Write-Host "`n  [1] Production recovered — offline $DbName + disks on $ProdSqlServer to reverse the link..." -ForegroundColor Yellow
@@ -339,12 +345,11 @@ Offline-Disks -Session $ProdSession -DataSerial $ProdSer.Data -LogSerial $ProdSe
 Write-Host "      ✓ [$DbName] offline on $ProdSqlServer — prod pod ready to reverse" -ForegroundColor Green
 
 # ── [2] Reverse: demote PROD pod so it resyncs the DR changes home ──────────────
-# This is the moment to highlight: only CHANGED BLOCKS travel, not the 4.5 TB DB.
-# -SkipQuiesce $true: demoting the SOURCE side of the link requires a quiesce
-# choice. After the unplanned failover, DR holds the authoritative writes, so we
-# demote prod WITHOUT quiescing — its divergent copy is discarded and resynced
-# from DR. (Quiescing would try to preserve/drain prod's side and stall, since the
-# DR peer is also promoted.)
+# This is the moment to highlight: only CHANGED BLOCKS travel, not the 4 TB DB.
+# -SkipQuiesce $true: demoting the SOURCE side of the link requires a quiesce choice.
+# After the unplanned failover DR holds the authoritative writes, so demote prod WITHOUT
+# quiescing — its divergent copy is discarded and resynced from DR. (Demoting the source
+# while DR is promoted flips the data flow to DR -> prod.)
 Write-Host "`n  [2] Reversing replication — demoting prod pod (delta resync from DR)..." -ForegroundColor Yellow
 $swReverse = [System.Diagnostics.Stopwatch]::StartNew()
 Update-Pfa2Pod -Array $ProdFa -Name $ProdPod -RequestedPromotionState 'demoted' -SkipQuiesce $true | Out-Null
@@ -362,10 +367,17 @@ do {
 $swReverse.Stop()
 Write-Host "      ✓ Prod is caught up — DR changes resynced home" -ForegroundColor Green
 
-# ── [3] Fail back: quiesce DR, then promote prod (this demotes DR) ──────────────
-Write-Host "`n  [3] Failing back: offline $DbName + disks at DR, then promote prod..." -ForegroundColor Yellow
+# ── [3] Fail back: offline DR, demote DR, then promote prod ─────────────────────
+# Demoting DR is REQUIRED before promoting prod. Promoting prod while DR is still
+# promoted leaves BOTH pods promoted (split brain) and the link cannot resume.
+# NOTE: the [2] reverse flipped the link roles — DR is now the SOURCE (prod is the
+# target). Demoting the source requires a quiesce choice, so use -Quiesce $true: it
+# flushes DR's final delta to prod before DR becomes the target again (zero data loss).
+Write-Host "`n  [3] Failing back: offline $DbName + disks at DR, demote DR, then promote prod..." -ForegroundColor Yellow
 Set-DbState   -SqlInstance $DrInst -State 'OFFLINE'
 Offline-Disks -Session $DrSession -DataSerial $DrSer.Data -LogSerial $DrSer.Log
+Update-Pfa2Pod -Array $DrFa -Name $DrPod -RequestedPromotionState 'demoted' -Quiesce $true | Out-Null
+Wait-PodState -Array $DrFa -Name $DrPod -State 'demoted' | Out-Null
 Update-Pfa2Pod -Array $ProdFa -Name $ProdPod -RequestedPromotionState 'promoted' | Out-Null
 Wait-PodState -Array $ProdFa -Name $ProdPod -State 'promoted' | Out-Null
 Write-Host "      ✓ $ProdPod promoted — production owns the database again (prod -> DR resumes)" -ForegroundColor Green
@@ -377,7 +389,9 @@ Set-DbState  -SqlInstance $ProdInst -State 'ONLINE'
 Write-Host "      ✓ [$DbName] is online on $ProdSqlServer" -ForegroundColor Green
 
 # ── [5] THE PAYOFF — the row written in DR is now present on-prem ───────────────
-Write-Banner 'RESULT — the DR change is now back on-prem' 'Green'
+Write-Host "`n╔══════════════════════════════════════════════════════════╗" -ForegroundColor Green
+Write-Host   "║  RESULT — the DR change is now back on-prem              ║" -ForegroundColor Green
+Write-Host   "╚══════════════════════════════════════════════════════════╝" -ForegroundColor Green
 Write-Host "  DR_DemoLog on PRODUCTION after failback:" -ForegroundColor Cyan
 Invoke-DbaQuery -SqlInstance $ProdInst -Database $DbName -Query "SELECT Id, Site, Note, WrittenAt FROM dbo.DR_DemoLog ORDER BY Id" | Format-Table -AutoSize
 $found = Invoke-DbaQuery -SqlInstance $ProdInst -Database $DbName -Query "SELECT COUNT(*) AS n FROM dbo.DR_DemoLog WHERE Note = N'$drStamp'"
@@ -389,7 +403,7 @@ if ($found.n -ge 1) {
 
 Write-Host "`n  ── Why this is fast ─────────────────────────────────────────────────────────────" -ForegroundColor Magenta
 Write-Host "     Reverse + catch-up completed in $([math]::Round($swReverse.Elapsed.TotalSeconds,1)) seconds." -ForegroundColor White
-Write-Host "     ActiveDR replicated only the CHANGED BLOCKS since failover — NOT the 4.5 TB" -ForegroundColor White
+Write-Host "     ActiveDR replicated only the CHANGED BLOCKS since failover — NOT the 4 TB" -ForegroundColor White
 Write-Host "     database. Failback time scales with how much DATA CHANGED, not database size." -ForegroundColor White
 Write-Host "     That is Purity's storage-optimized, always-thin, deduped replication at work." -ForegroundColor White
 
@@ -417,9 +431,11 @@ Wait-Spacebar `
 $ResetDemo = $false
 
 if ($ResetDemo) {
-    Write-Banner 'Resetting ActiveDR demo for re-run' 'Magenta'
+    Write-Host "`n╔══════════════════════════════════════════════════════════╗" -ForegroundColor Magenta
+    Write-Host   "║  Resetting ActiveDR demo for re-run                      ║" -ForegroundColor Magenta
+    Write-Host   "╚══════════════════════════════════════════════════════════╝" -ForegroundColor Magenta
 
-    # [1] Ensure production owns the database and it is online
+    # ── [1] Ensure production owns the database and it is online ────────────────────
     Write-Host "`n  [1] Ensuring $ProdPod is promoted and $DbName is ONLINE on $ProdSqlServer..." -ForegroundColor Yellow
     if ((Get-Pfa2Pod -Array $ProdFa -Name $ProdPod).PromotionStatus -ne 'promoted') {
         Update-Pfa2Pod -Array $ProdFa -Name $ProdPod -RequestedPromotionState 'promoted' | Out-Null
@@ -431,7 +447,7 @@ if ($ResetDemo) {
     }
     Write-Host "      ✓ Production owns [$DbName] and it is online" -ForegroundColor Green
 
-    # [2] Clear the marker table for a clean baseline
+    # ── [2] Clear the marker table for a clean baseline ─────────────────────────────
     Write-Host "`n  [2] Truncating dbo.DR_DemoLog for a clean baseline..." -ForegroundColor Yellow
     Invoke-DbaQuery -SqlInstance $ProdInst -Database $DbName -Query "IF OBJECT_ID('dbo.DR_DemoLog') IS NOT NULL TRUNCATE TABLE dbo.DR_DemoLog"
     Write-Host "      ✓ dbo.DR_DemoLog cleared" -ForegroundColor Green
