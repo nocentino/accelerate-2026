@@ -259,6 +259,10 @@ Write-Host "      DR_DemoLog as seen at DR (note the DR-TEST row):" -ForegroundC
 Invoke-DbaQuery -SqlInstance $DrInst -Database $DbName -Query "SELECT Id, Site, Note, WrittenAt FROM dbo.DR_DemoLog ORDER BY Id" | Format-Table -AutoSize
 Write-Host "      ✓ Read/write confirmed at the DR site" -ForegroundColor Green
 
+wait-Spacebar `
+    -Summary  "Promoted $DrPod on $DrArray and onlined $DbName on $DrSqlServer, proving read/write access at the DR site by inserting a test row. The production site kept running with no interruption." `
+    -Highlight "This is the ActiveDR differentiator: you can test read/write operations at the DR site while production keeps running. No other DR technology lets you do this."
+
 # ── [4] End the test: offline DB + disks at DR and DEMOTE ───────────────────────
 Write-Host "`n  [4] Ending the test: offline DB+disks at DR and DEMOTE (discards the test write)..." -ForegroundColor Yellow
 Set-DbState   -SqlInstance $DrInst -State 'OFFLINE'
@@ -275,10 +279,9 @@ Write-Host "      ✓ DR rehearsed with full read/write and ZERO production impa
 Write-Host "  ── Part 1 complete (non-disruptive DR test) ─────────────────────────────────────" -ForegroundColor Cyan
 Write-Host "     DR site proved read/write; production ran without interruption" -ForegroundColor White
 
-Wait-Spacebar `
-    -Summary  "Promoted $DrPod on $DrArray, onlined $DbName on $DrSqlServer, inserted a test row to prove read/write access, then demoted the DR pod discarding the test write, and resumed replication — $ProdSqlServer ran without interruption throughout." `
-    -Highlight "A full read/write DR rehearsal with zero production impact and no maintenance window. No other DR technology lets you test write operations at the DR site while production keeps running. This is the ActiveDR differentiator."
-
+wait-Spacebar `
+    -Summary  "The non-disruptive DR test promoted the DR pod and onlined the database at the DR site, proving read/write access by inserting a test row. The test ended by offlining the database and disks at DR and demoting the pod, which discarded the test write. Production was completely unaffected throughout." `
+    -Highlight "ActiveDR's continuous replication and storage-level integration enable this non-disruptive DR testing capability. You can validate your DR readiness with real workloads at the DR site, without any risk or impact to production."
 
 ##############################################################################################################################
 #
@@ -310,6 +313,12 @@ Write-Host "      DR_DemoLog at DR (now the system of record):" -ForegroundColor
 Invoke-DbaQuery -SqlInstance $DrInst -Database $DbName -Query "SELECT Id, Site, Note, WrittenAt FROM dbo.DR_DemoLog ORDER BY Id" | Format-Table -AutoSize
 Write-Host "      ✓ DR is serving the application. Remember the row: '$drStamp'" -ForegroundColor Green
 
+
+# output the row from DR with a timestamp so we can track it through the failback in Part 3. This is the change that must travel back to production during failback to prove zero data loss on the reverse sync.    
+Invoke-DbaQuery -SqlInstance $DrInst -Database $DbName -Query "SELECT Id, Site, Note, WrittenAt FROM dbo.DR_DemoLog ORDER BY Id" | Format-Table -AutoSize
+Write-Host "      ✓ Read/write confirmed at the DR site" -ForegroundColor Green
+
+
 Wait-Spacebar `
     -Summary  "Simulated a production outage. Promoted $DrPod, onlined $DbName on $DrSqlServer, and wrote a timestamped row representing live application activity in DR. The Azure EverPure Cloud site is now the system of record." `
     -Highlight "Unplanned failover is two operations: promote the pod, online the database — DR site live in seconds. The DR write is tracked. It must travel back to production during failback to prove zero data loss on the reverse sync. Watch for it in Part 3."
@@ -331,9 +340,14 @@ Write-Host "      ✓ [$DbName] offline on $ProdSqlServer — prod pod ready to 
 
 # ── [2] Reverse: demote PROD pod so it resyncs the DR changes home ──────────────
 # This is the moment to highlight: only CHANGED BLOCKS travel, not the 4.5 TB DB.
+# -SkipQuiesce $true: demoting the SOURCE side of the link requires a quiesce
+# choice. After the unplanned failover, DR holds the authoritative writes, so we
+# demote prod WITHOUT quiescing — its divergent copy is discarded and resynced
+# from DR. (Quiescing would try to preserve/drain prod's side and stall, since the
+# DR peer is also promoted.)
 Write-Host "`n  [2] Reversing replication — demoting prod pod (delta resync from DR)..." -ForegroundColor Yellow
 $swReverse = [System.Diagnostics.Stopwatch]::StartNew()
-Update-Pfa2Pod -Array $ProdFa -Name $ProdPod -RequestedPromotionState 'demoted' | Out-Null
+Update-Pfa2Pod -Array $ProdFa -Name $ProdPod -RequestedPromotionState 'demoted' -SkipQuiesce $true | Out-Null
 Wait-PodState -Array $ProdFa -Name $ProdPod -State 'demoted' | Out-Null
 
 # Wait for the prod (now target) link to be caught up (recovery point current).

@@ -162,9 +162,10 @@ Write-Host "`n╔═════════════════════
 Write-Host   "║  PART 2 — Review AG Status                               ║" -ForegroundColor Cyan
 Write-Host   "╚══════════════════════════════════════════════════════════╝" -ForegroundColor Cyan
 
-Write-Host "`n  $CloudSqlServer is the new primary. $OnPremSqlServer1 and $OnPremSqlServer2 will show" -ForegroundColor DarkGray
+Write-Host "`n  $CloudSqlServer is the new primary. $OnPremSqlServer1 and $OnPremSqlServer2 will show as" -ForegroundColor DarkGray
+Write-Host   "  CONNECTED / NOT SYNCHRONIZING and must be reseeded before they can rejoin." -ForegroundColor DarkGray
 
-# ── [1] Show replica status ─────────────────────────────────────────────────────"
+# ── [1] Show replica status ─────────────────────────────────────────────────────
 Write-Host "`n  [1] AG replica status..." -ForegroundColor Yellow
 $SqlInstanceCloud = Connect-DbaInstance -SqlInstance $CloudSqlServer -TrustServerCertificate -nonPooledConnection 
 Get-DbaAgReplica -SqlInstance $SqlInstanceCloud | Select-Object Name, Role, ConnectionState, RollupSynchronizationState | Format-Table
@@ -172,7 +173,7 @@ Get-DbaAgReplica -SqlInstance $SqlInstanceCloud | Select-Object Name, Role, Conn
 Write-Host "      ✓ Both on-prem replicas ($OnPremSqlServer1 and $OnPremSqlServer2) are CONNECTED  / NOT SYNCHRONIZING — they fell behind the forced failover point and cannot self-heal." -ForegroundColor DarkGray
 
 Wait-Spacebar `
-    -Summary  "Queried replica and database sync states from the new primary $CloudSqlServer. Both on-prem replicas ($OnPremSqlServer1 and $OnPremSqlServer2) are DISCONNECTED / NOT SYNCHRONIZING — they fell behind the forced failover point and cannot self-heal." `
+    -Summary  "Queried replica and database sync states from the new primary $CloudSqlServer. Both on-prem replicas ($OnPremSqlServer1 and $OnPremSqlServer2) are CONNECTED / NOT SYNCHRONIZING — they fell behind the forced failover point and cannot self-heal." `
     -Highlight "After a forced failover, secondaries not at the same LSN as the new primary are permanently out of sync. The only path back is a reseed. Pure Storage makes that a storage-speed operation regardless of database size — we are about to prove it."
 
 
@@ -271,7 +272,7 @@ Write-Host "     Backup   : $BackupUrl" -ForegroundColor White
 Write-Host "     Status   : Replicating asynchronously to both on-prem arrays" -ForegroundColor White
 
 Wait-Spacebar `
-    -Summary  "Reconnected to all instances. Froze $CloudSqlServer, took a PGroup snapshot on $CloudArrayName, released the freeze with a METADATA_ONLY .bkm backup, and captured a bridging log backup — all targeting both on-prem arrays simultaneously." `
+    -Summary  "Reconnected to all instances. Froze $CloudSqlServer, took a PGroup snapshot on $CloudArrayName, then released the freeze with a METADATA_ONLY .bkm backup to S3. The snapshot is replicating to both on-prem arrays simultaneously (each on-prem reseed takes its own bridging log backup in Part 4/5)." `
     -Highlight "Replication direction has reversed: Azure EverPure Cloud is now the snapshot SOURCE and both on-prem arrays are the targets. The same Pure Storage + T-SQL Snapshot Backup workflow operates identically cloud-to-on-prem and on-prem-to-cloud."
 
 
@@ -562,15 +563,17 @@ Wait-Spacebar `
 #   PART 6 — Planned Failback to On-Prem (aen-sql-25-c)
 #
 #   With all three replicas healthy again, fail the AG back to on-prem with a
-#   zero-data-loss failover.
-#   reaching SYNCHRONIZED state:
+#   zero-data-loss failover, by:
 #     [1] Switch the cloud primary and the on-prem failback target to
 #         SYNCHRONOUS_COMMIT (both ends must be sync for a safe failover).
 #     [2] Wait for aen-sql-25-c to reach the SYNCHRONIZED state.
-#     [3] Issue FAILOVER from aen-sql-25-c (becomes primary).
-#         Safe because SYNCHRONIZED guarantees both LSNs match — no data lost.
+#     [3] Issue FORCE_FAILOVER_ALLOW_DATA_LOSS from aen-sql-25-c (becomes primary).
+#         A clusterless AG (CLUSTER_TYPE = NONE) uses this syntax even for a planned
+#         failover; it is safe because SYNCHRONIZED guarantees both LSNs match — no data lost.
 #     [4] Return the cloud replica (aen-sql-25-e) to ASYNCHRONOUS_COMMIT so the
 #         WAN link is no longer in the synchronous commit path.
+#     [5] Resume data movement on the on-prem secondary and the cloud replica.
+#     [6] Verify AG roles and sync state after failback.
 #
 ##############################################################################################################################
 
@@ -631,8 +634,9 @@ Invoke-DbaQuery -SqlInstance $SqlInstanceOnPrem1 -Database master -Query $Query
 Write-Host "      ✓ $CloudSqlServer set back to asynchronous commit" -ForegroundColor Green
 
 
-# ── Resume data movement on the cloud replica (optional, if you want to re-sync the cloud replica as a secondary after the failback)
-Write-Host "`n  [5] Resuming data movement on  $SqlInstanceOnPrem2 and $SqlInstanceCloud..." -ForegroundColor Yellow
+# ── [5] Resume data movement on the on-prem secondary and the cloud replica ─────
+# Re-syncs aen-sql-25-d and the cloud replica as secondaries after the failback.
+Write-Host "`n  [5] Resuming data movement on $SqlInstanceOnPrem2 and $SqlInstanceCloud..." -ForegroundColor Yellow
 Resume-DbaAgDbDataMovement -SqlInstance $SqlInstanceOnPrem2 -Database $DbName -Confirm:$false
 Write-Host "      ✓ Data movement resumed on $SqlInstanceOnPrem2" -ForegroundColor Green
 
@@ -640,10 +644,10 @@ Resume-DbaAgDbDataMovement -SqlInstance $SqlInstanceCloud -Database $DbName -Con
 Write-Host "      ✓ Data movement resumed on $CloudSqlServer" -ForegroundColor Green
 
 
-# ── [5] Verify roles and sync state after failback ──────────────────────────────
+# ── [6] Verify roles and sync state after failback ──────────────────────────────
 # Query from the NEW primary (aen-sql-25-c) — aen-sql-25-e is now a secondary
 # and would show the other replicas as Unknown.
-Write-Host "`n  [5] Verifying AG roles and sync state after failback..." -ForegroundColor Yellow
+Write-Host "`n  [6] Verifying AG roles and sync state after failback..." -ForegroundColor Yellow
 $SqlInstanceOnPrem1 = Connect-DbaInstance -SqlInstance $OnPremSqlServer1 -SqlCredential $SqlCredential -TrustServerCertificate -NonPooledConnection
 Get-DbaAgReplica -SqlInstance $SqlInstanceOnPrem1 | Select-Object Name, Role, ConnectionState, RollupSynchronizationState | Format-Table
 

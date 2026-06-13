@@ -278,9 +278,9 @@ Write-Host "  Next         : mount on aen-sql-25-e (PHASE B — see reference bl
 =============================================================================
  PHASE B (DEFERRED) — Mount the replica on aen-sql-25-e   [NOT executed here]
 =============================================================================
- Storage-only, reusing aen-sql-25-e's existing EPC iSCSI host object. First
- resolve the direct-management 500 to gso-cbs-azure.fsa.lab (or run these from a host
- that can reach the Azure array), since Phase B MUTATES the Azure array.
+ Storage-only, reusing aen-sql-25-e's existing EPC iSCSI host object. First open a
+ connection to the Azure array ($az = Connect-Pfa2Array -EndPoint gso-cbs-azure.fsa.lab ...),
+ or run these from a host that can reach it, since Phase B MUTATES the Azure array.
 
  Decide ONE of:
 

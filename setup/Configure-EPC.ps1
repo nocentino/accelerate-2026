@@ -11,10 +11,10 @@
       3. Connects to the EPC array and creates a host record for this VM.
       4. Provisions two volumes: SQLData, SQLLog.
       5. Connects those volumes to the host.
-      6. Connects EPC iSCSI portals (CT0: 172.17.52.12, CT1: 172.17.52.17).
+      6. Connects EPC iSCSI portals (CT0: 172.17.51.12, CT1: 172.17.51.17).
       7. Initializes, partitions, and formats the new disks:
-             H:\SQLData  — data volume
-             I:\SQLLog   — log volume
+             D:\SQLDATA1  — data volume
+             L:\SQLLOG1   — log volume
 
     TempDB is left on the local ephemeral disk (D:\SQLTemp) — not touched here.
 #>

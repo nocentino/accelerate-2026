@@ -11,7 +11,7 @@
     core VNet/subnet, with no public IP.
 
     Storage is provided by Pure Storage EPC via iSCSI:
-      D:\SQLDATA1 — SQLData volume  (10 TB)
+      D:\SQLDATA1 — SQLData volume  (20 TB)
       L:\SQLLOG1  — SQLLog volume   (512 GB)
 
     TempDB is left on the local ephemeral (temporary) disk (D:\SQLTemp).
@@ -268,7 +268,7 @@ Write-Output "  Location       : $Location"
 Write-Output "  VM Size        : $VmSize"
 Write-Output "  SQL Image      : $Publisher / $($Offer.Offer) / $($Sku.Skus)"
 Write-Output "  EPC Array      : gso-cbs-azure.fsa.lab"
-Write-Output "  Data volume    : D:\SQLData  [EPC iSCSI]"
-Write-Output "  Log  volume    : L:\SQLLog   [EPC iSCSI]"
+Write-Output "  Data volume    : D:\SQLDATA1  [EPC iSCSI]"
+Write-Output "  Log  volume    : L:\SQLLOG1   [EPC iSCSI]"
 Write-Output "  TempDB         : D:\SQLTemp                       [local ephemeral disk]"
 
