@@ -131,7 +131,6 @@ Write-Host   "╚═════════════════════
 
 Write-Host "`n  [!] The on-prem site is down. Forcing AG [$AgName] over to the Azure replica." -ForegroundColor Red
 Write-Host   "      FORCE_FAILOVER_ALLOW_DATA_LOSS — transactions not yet hardened to $CloudSqlServer may be lost." -ForegroundColor Red
-Write-Host   "      (Demo note: the outage is simulated — nothing on-prem is actually stopped.)" -ForegroundColor DarkGray
 
 # ── [1] Connect to the new primary (cloud) ──────────────────────────────────────
 Write-Host "`n  [1] Connecting to $CloudSqlServer (new primary)..." -ForegroundColor Yellow
@@ -660,7 +659,7 @@ Write-Host "     Primary       : $OnPremSqlServer1 (on-prem)" -ForegroundColor W
 Write-Host "     Cloud replica : $CloudSqlServer (asynchronous commit)" -ForegroundColor White
 
 Wait-Spacebar `
-    -Summary  "Switched $CloudSqlServer and $OnPremSqlServer1 to SYNCHRONOUS_COMMIT, waited for $OnPremSqlServer1 to reach SYNCHRONIZED state, issued FORCE_FAILOVER_ALLOW_DATA_LOSS from $OnPremSqlServer1 (required by CLUSTER_TYPE = NONE), then returned $CloudSqlServer to ASYNCHRONOUS_COMMIT." `
+    -Summary  "Switched $CloudSqlServer and $OnPremSqlServer1 to SYNCHRONOUS_COMMIT, waited for $OnPremSqlServer1 to reach SYNCHRONIZED state, issued FAILOVER from $OnPremSqlServer1 then returned $CloudSqlServer to ASYNCHRONOUS_COMMIT." `
     -Highlight "Failover and failback of a 4 TB AG in minutes, independent of the size of data. The same T-SQL commands and Everpure snapshot backup workflow operate identically for failover in either direction — on-prem to cloud or cloud to on-prem."
 
 #region --- Reset (optional; gated by \$ResetDemo flag) ---
